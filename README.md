@@ -1,6 +1,6 @@
 # Daisy AI Agents Skill
 
-Drive [Daisy](https://daisy.now) — the AI canvas for native mobile app design — directly from your AI coding agent. Ask your agent "design me a settings screen" or "mock up onboarding for my fitness app" and watch screens materialize in your daisy project, with shareable preview URLs ready to drop into a chat or PR.
+Drive [Daisy](https://daisy.now) directly from your AI coding agent. Ask your agent "design me a settings screen" or "mock up onboarding for my fitness app" and watch screens materialize in your daisy project, with shareable preview URLs ready to drop into a chat or PR.
 
 ## Installation
 
