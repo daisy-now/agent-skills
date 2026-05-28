@@ -1,7 +1,5 @@
 # Daisy — AI Agent Skill
 
-> **Rename this file to `README.md`** when you drop it into the standalone skill repo. It lives here in the daisy monorepo only so it can ship together with `SKILL.md`.
-
 Drive [Daisy](https://daisy.now) — the AI canvas for native mobile app design — directly from your AI coding agent. Ask your agent "design me a settings screen" or "mock up onboarding for my fitness app" and watch screens materialize in your daisy project, with shareable preview URLs ready to drop into a chat or PR.
 
 ## What this skill does
@@ -67,20 +65,6 @@ This repo contains a single file: `SKILL.md`. It's a Markdown document with YAML
 - The full request/response shape for every endpoint, with copy-pasteable `curl` examples
 
 Your agent reads `SKILL.md` once at conversation start (or when invoked by a triggering prompt) and uses it as its working manual.
-
-## Capabilities matrix
-
-| Capability | Endpoint | Cost |
-|---|---|---|
-| Create / list / update / delete projects | `/projects[/:id]` | free |
-| Generate screens from natural language | `POST /projects/:id/runs` | 10/screen |
-| Generate a single screen | `POST /projects/:id/screens` | 10 |
-| Refine an existing screen | `PATCH /projects/:id/screens/:sid` | 5 |
-| Set or generate a theme | `PUT /projects/:id/theme` · `POST /projects/:id/theme/generate` | free |
-| Update design contract | `PUT /projects/:id/design-contract` | free |
-| Poll or cancel a run | `GET` · `DELETE /runs/:runId` | free |
-| Check credit usage | `GET /usage` | free |
-| Render a shareable preview | `GET /preview/:token` (signed) | free |
 
 ## Security notes
 
