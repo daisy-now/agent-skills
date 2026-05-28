@@ -1,6 +1,14 @@
-# Daisy — AI Agent Skill
+# Daisy AI Agents Skill
 
 Drive [Daisy](https://daisy.now) — the AI canvas for native mobile app design — directly from your AI coding agent. Ask your agent "design me a settings screen" or "mock up onboarding for my fitness app" and watch screens materialize in your daisy project, with shareable preview URLs ready to drop into a chat or PR.
+
+## Installation
+
+Browse and install interactively:
+
+```bash
+npx skills add daisy-now/agent-skills
+```
 
 ## What this skill does
 
