@@ -5,7 +5,7 @@ description: Design native mobile app screens via the Daisy REST API. Use this w
 
 # Design mobile app screens with Daisy
 
-Daisy (https://daisy.now) is an AI canvas for designing native mobile app screens. This skill drives Daisy's public REST API at `/api/v1` so you can spin up projects, generate screens, iterate on them, and hand the user a clickable preview URL — all from inside your coding agent.
+Daisy (https://daisy.now) is an AI canvas for designing native mobile app screens. This skill drives Daisy's public REST API at `/api` so you can spin up projects, generate screens, iterate on them, and hand the user a clickable preview URL — all from inside your coding agent.
 
 ## When to use
 
@@ -48,11 +48,11 @@ Use this when the user describes the work in natural language and you want Daisy
 
 ```bash
 # Reuse an existing project if the user already mentioned one
-curl -s "$DAISY_BASE_URL/api/v1/projects" \
+curl -s "$DAISY_BASE_URL/api/projects" \
   -H "Authorization: Bearer $DAISY_API_KEY" | jq '.data[] | {id, name}'
 
 # Or create a new one
-curl -s -X POST "$DAISY_BASE_URL/api/v1/projects" \
+curl -s -X POST "$DAISY_BASE_URL/api/projects" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"idea":"fitness tracker for runners","name":"Runr"}'
@@ -62,7 +62,7 @@ curl -s -X POST "$DAISY_BASE_URL/api/v1/projects" \
 ### 2. Fire a run
 
 ```bash
-curl -s -X POST "$DAISY_BASE_URL/api/v1/projects/abc123/runs" \
+curl -s -X POST "$DAISY_BASE_URL/api/projects/abc123/runs" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -70,7 +70,7 @@ curl -s -X POST "$DAISY_BASE_URL/api/v1/projects/abc123/runs" \
     "message": "Design onboarding (3 screens: welcome, goal-picker, permissions) and a home feed with today'\''s run summary.",
     "wait": "none"
   }'
-# → 202 { "runId": "run_xyz", "status": "queued", "pollUrl": "/api/v1/runs/run_xyz" }
+# → 202 { "runId": "run_xyz", "status": "queued", "pollUrl": "/api/runs/run_xyz" }
 ```
 
 `wait` values:
@@ -80,13 +80,13 @@ curl -s -X POST "$DAISY_BASE_URL/api/v1/projects/abc123/runs" \
 
 `tools` (optional) — `{ "mcp": false, "skills": false }` to disable the user's MCP servers / agent skills for this run. Default: both enabled.
 
-**Concurrency**: only one active run per project. A second concurrent POST returns `409 conflict:api_v1`. Either wait for the first run, or cancel it with `DELETE /api/v1/runs/{runId}`.
+**Concurrency**: only one active run per project. A second concurrent POST returns `409 conflict:api`. Either wait for the first run, or cancel it with `DELETE /api/runs/{runId}`.
 
 ### 3. Poll until terminal
 
 ```bash
 while true; do
-  STATE=$(curl -s "$DAISY_BASE_URL/api/v1/runs/run_xyz" \
+  STATE=$(curl -s "$DAISY_BASE_URL/api/runs/run_xyz" \
     -H "Authorization: Bearer $DAISY_API_KEY")
   STATUS=$(echo "$STATE" | jq -r .status)
   case "$STATUS" in
@@ -121,7 +121,7 @@ The run doesn't return preview URLs directly — fetch each screen:
 
 ```bash
 for SID in $(echo "$STATE" | jq -r '.operations[].screenId'); do
-  curl -s "$DAISY_BASE_URL/api/v1/projects/abc123/screens/$SID" \
+  curl -s "$DAISY_BASE_URL/api/projects/abc123/screens/$SID" \
     -H "Authorization: Bearer $DAISY_API_KEY" \
     | jq '{label, previewUrl, htmlUrl, status}'
 done
@@ -130,7 +130,7 @@ done
 Or list all screens in the project:
 
 ```bash
-curl -s "$DAISY_BASE_URL/api/v1/projects/abc123/screens" \
+curl -s "$DAISY_BASE_URL/api/projects/abc123/screens" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   | jq '.data[] | {id, label, previewUrl, status}'
 ```
@@ -140,9 +140,9 @@ curl -s "$DAISY_BASE_URL/api/v1/projects/abc123/screens" \
 `previewUrl` is HMAC-signed, valid for 24h, requires **no auth**, and renders the screen full-page in mobile dimensions. Print it as a clickable link:
 
 ```
-✓ Welcome screen      → https://daisy.now/api/v1/preview/eyJhb…
-✓ Goal picker         → https://daisy.now/api/v1/preview/eyJhb…
-✓ Permissions prompt  → https://daisy.now/api/v1/preview/eyJhb…
+✓ Welcome screen      → https://daisy.now/api/preview/eyJhb…
+✓ Goal picker         → https://daisy.now/api/preview/eyJhb…
+✓ Permissions prompt  → https://daisy.now/api/preview/eyJhb…
 ```
 
 `htmlUrl` returns the raw HTML (same token + `?raw=1`) — use when the user wants to download or inspect markup.
@@ -150,7 +150,7 @@ curl -s "$DAISY_BASE_URL/api/v1/projects/abc123/screens" \
 ### 6. Cancel a run (if needed)
 
 ```bash
-curl -s -X DELETE "$DAISY_BASE_URL/api/v1/runs/run_xyz" \
+curl -s -X DELETE "$DAISY_BASE_URL/api/runs/run_xyz" \
   -H "Authorization: Bearer $DAISY_API_KEY"
 # Queued → cancels immediately, returns 200
 # Running → returns 202 with status "aborting"; poll until "cancelled"
@@ -164,7 +164,7 @@ Skip the run orchestrator when you want precise control — e.g. iterating on on
 ### Create one screen
 
 ```bash
-curl -s -X POST "$DAISY_BASE_URL/api/v1/projects/abc123/screens" \
+curl -s -X POST "$DAISY_BASE_URL/api/projects/abc123/screens" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -184,7 +184,7 @@ Two modes:
 **Full refinement** (re-generates the whole screen):
 
 ```bash
-curl -s -X PATCH "$DAISY_BASE_URL/api/v1/projects/abc123/screens/scr_1" \
+curl -s -X PATCH "$DAISY_BASE_URL/api/projects/abc123/screens/scr_1" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -196,11 +196,11 @@ curl -s -X PATCH "$DAISY_BASE_URL/api/v1/projects/abc123/screens/scr_1" \
 
 ```bash
 # Get the screen's HTML first to find data-aid="..." on the element to change
-curl -s "$DAISY_BASE_URL/api/v1/projects/abc123/screens/scr_1?raw=1" \
+curl -s "$DAISY_BASE_URL/api/projects/abc123/screens/scr_1?raw=1" \
   -H "Authorization: Bearer $DAISY_API_KEY"
 # ...find <button data-aid="btn_a3">Continue</button>...
 
-curl -s -X PATCH "$DAISY_BASE_URL/api/v1/projects/abc123/screens/scr_1" \
+curl -s -X PATCH "$DAISY_BASE_URL/api/projects/abc123/screens/scr_1" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -211,11 +211,11 @@ curl -s -X PATCH "$DAISY_BASE_URL/api/v1/projects/abc123/screens/scr_1" \
 
 ```bash
 # Generate a theme from the project idea
-curl -s -X POST "$DAISY_BASE_URL/api/v1/projects/abc123/theme/generate" \
+curl -s -X POST "$DAISY_BASE_URL/api/projects/abc123/theme/generate" \
   -H "Authorization: Bearer $DAISY_API_KEY"
 
 # Or set one explicitly
-curl -s -X PUT "$DAISY_BASE_URL/api/v1/projects/abc123/theme" \
+curl -s -X PUT "$DAISY_BASE_URL/api/projects/abc123/theme" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"colors":{"primary":"#0A84FF","background":"#0B0F17","text":"#F2F4F7"},"radius":"medium"}'
@@ -235,7 +235,7 @@ The preview route sets permissive `X-Frame-Options` for embedding under daisy.so
 
 ## Endpoint reference
 
-All paths are under `$DAISY_BASE_URL/api/v1`. Replace `:id` with project ID, `:sid` with screen ID, `:runId` with run ID.
+All paths are under `$DAISY_BASE_URL/api`. Replace `:id` with project ID, `:sid` with screen ID, `:runId` with run ID.
 
 | Method | Path | Scope | Credits |
 |---|---|---|---|
@@ -266,12 +266,12 @@ All paths are under `$DAISY_BASE_URL/api/v1`. Replace `:id` with project ID, `:s
 - **Run**: sum of all screens created / edited inside the run
 - Everything else (reads, theme changes, deletes, project ops): **free**
 
-Free-tier and Plus accounts can't call this API at all — they get `403 forbidden:api_v1`. If you see that, tell the user to upgrade at https://daisy.now/pricing.
+Free-tier and Plus accounts can't call this API at all — they get `403 forbidden:api`. If you see that, tell the user to upgrade at https://daisy.now/pricing.
 
 Check remaining credits before a big run:
 
 ```bash
-curl -s "$DAISY_BASE_URL/api/v1/me" -H "Authorization: Bearer $DAISY_API_KEY" \
+curl -s "$DAISY_BASE_URL/api/me" -H "Authorization: Bearer $DAISY_API_KEY" \
   | jq '{credits, creditsAllowance}'
 ```
 
@@ -283,8 +283,8 @@ Send `Idempotency-Key: <uuid>` on every write (`POST`/`PATCH`/`PUT`). Daisy retu
 
 Always retry on:
 
-- `429 rate_limit:api_v1` (wait `Retry-After` seconds)
-- `503 offline:api_v1` (exponential backoff: 1s, 2s, 4s, …, cap at 30s, give up after ~3 minutes)
+- `429 rate_limit:api` (wait `Retry-After` seconds)
+- `503 offline:api` (exponential backoff: 1s, 2s, 4s, …, cap at 30s, give up after ~3 minutes)
 - Network/transport errors
 
 Never retry on `4xx` other than 429 — the request itself is wrong.
@@ -294,20 +294,20 @@ Never retry on `4xx` other than 429 — the request itself is wrong.
 Every error is JSON:
 
 ```json
-{ "code": "forbidden:api_v1", "message": "…", "cause": "Public API access requires the Pro or Max plan." }
+{ "code": "forbidden:api", "message": "…", "cause": "Public API access requires the Pro or Max plan." }
 ```
 
 Common codes:
 
 | Code | When | What to do |
 |---|---|---|
-| `unauthorized:api_v1` | bad/missing/revoked key | Ask user to re-create the key in the dashboard |
-| `forbidden:api_v1` | no scope, wrong tier, or `subscriptionStatus` is not `active`/`trialing` | Tell user to upgrade or fix billing |
-| `not_found:api_v1` | project/screen/run doesn't exist | Don't retry, the ID is wrong |
-| `conflict:api_v1` | active run on project, or `Idempotency-Key` collision with different body | For active run: cancel or wait; for idempotency: use a new key |
-| `rate_limit:api_v1` | rate-limited | Honor `Retry-After` header |
-| `bad_request:api_v1` | invalid body | Fix the request — don't retry |
-| `offline:api_v1` | transient backend issue | Retry with backoff |
+| `unauthorized:api` | bad/missing/revoked key | Ask user to re-create the key in the dashboard |
+| `forbidden:api` | no scope, wrong tier, or `subscriptionStatus` is not `active`/`trialing` | Tell user to upgrade or fix billing |
+| `not_found:api` | project/screen/run doesn't exist | Don't retry, the ID is wrong |
+| `conflict:api` | active run on project, or `Idempotency-Key` collision with different body | For active run: cancel or wait; for idempotency: use a new key |
+| `rate_limit:api` | rate-limited | Honor `Retry-After` header |
+| `bad_request:api` | invalid body | Fix the request — don't retry |
+| `offline:api` | transient backend issue | Retry with backoff |
 
 ## Rate limits
 

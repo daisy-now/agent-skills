@@ -12,7 +12,7 @@ npx skills add daisy-now/agent-skills
 
 ## What this skill does
 
-- **Plans + generates mobile screens** via Daisy's `/api/v1/projects/:id/runs` orchestrator
+- **Plans + generates mobile screens** via Daisy's `/api/projects/:id/runs` orchestrator
 - **Iterates on individual screens** (refinement or targeted edits to a specific element)
 - **Manages projects** (create, list, archive, delete)
 - **Generates and tunes themes** so screens look consistent
