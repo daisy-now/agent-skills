@@ -1,6 +1,6 @@
 # Daisy AI Agents Skill
 
-Drive [Daisy](https://daisy.now) directly from your AI coding agent. Ask your agent "design me a settings screen" or "mock up onboarding for my fitness app" and watch screens materialize in your daisy project, with shareable preview URLs ready to drop into a chat or PR.
+Drive [Daisy](https://www.daisy.now) directly from your AI coding agent. Ask your agent "design me a settings screen" or "mock up onboarding for my fitness app" and watch screens materialize in your daisy project — the agent reads back each screen's rendered HTML and can render them to PNG/JPEG images to drop into a chat or PR.
 
 ## Installation
 
@@ -13,12 +13,12 @@ npx skills add daisy-now/agent-skills
 ## What this skill does
 
 - **Plans + generates mobile screens** via Daisy's `/api/projects/:id/runs` orchestrator
-- **Iterates on individual screens** (refinement or targeted edits to a specific element)
-- **Manages projects** (create, list, archive, delete)
-- **Generates and tunes themes** so screens look consistent
-- **Returns HMAC-signed preview URLs** (24h TTL) that anyone can open in a browser — no Daisy account needed
+- **Iterates on screens** by sending natural-language runs, or pushes direct HTML edits through the batch screen endpoint
+- **Manages projects** (create, list, update, delete)
+- **Tunes themes** (via `PATCH /api/projects/:id`) so screens look consistent
+- **Reads rendered HTML** straight off each screen and **renders PNG/JPEG images** via `POST /api/screenshots`
 
-The agent always tells you the credit cost up front. Defaults to async runs (`wait="none"`) so long generations don't block your terminal.
+The agent reports the credit cost from each run's `creditsCharged`. Defaults to async runs (`wait="none"`) so long generations don't block your terminal.
 
 ## Install
 
@@ -37,17 +37,15 @@ Most agent skill catalogs read a `SKILL.md` with YAML frontmatter from a folder.
 
 ## Prerequisites
 
-1. A Daisy **Pro** or **Max** subscription (https://daisy.now/pricing). Free/Starter/Plus tiers can't call the API.
+1. A Daisy **Pro** or **Max** subscription (https://www.daisy.now/pricing). Free/Plus tiers can't call the API.
 2. An API key from **Settings → API keys** in the daisy dashboard.
-3. Two environment variables:
+3. One environment variable:
 
    ```bash
    export DAISY_API_KEY="dsy_live_..."
-   # Optional, defaults to https://daisy.now
-   export DAISY_BASE_URL="https://daisy.now"
    ```
 
-   Add them to your shell profile so the agent picks them up automatically.
+   Add it to your shell profile so the agent picks it up automatically. The domain is always `https://www.daisy.now` — there is no base-URL override.
 
 ## Things to ask your agent
 
@@ -56,11 +54,11 @@ After installing, try any of these:
 - *"Design onboarding for a meditation app: welcome, breathing-style picker, and notifications opt-in."*
 - *"Add a profile screen to the Runr project. Avatar, stats grid, and an edit button."*
 - *"On the settings screen, change the primary button to red and make the destructive action stand out more."*
-- *"Generate a darker theme for this project and regenerate the home feed."*
-- *"What did I create on Daisy this week? Show me with preview links."*
+- *"Set a darker theme for this project and regenerate the home feed."*
+- *"What did I create on Daisy this week? Render each screen to a PNG."*
 - *"Cancel the run that's been going for 8 minutes."*
 
-The agent will pick the right endpoints, batch work into runs when sensible, hand you back clickable preview URLs, and warn you if a step would exceed your remaining credits.
+The agent will pick the right endpoints, batch work into runs when sensible, save the rendered HTML or screenshots locally for you, and report the credits each run charged.
 
 ## How it works
 
@@ -76,24 +74,22 @@ Your agent reads `SKILL.md` once at conversation start (or when invoked by a tri
 
 ## Security notes
 
-- API keys are scoped (Full access / Read only / Custom). The agent will respect whatever scopes you grant — pick **Read only** if you want it to inspect but never spend credits.
-- Preview URLs are HMAC-signed and expire after 24 hours. Sharing one gives the recipient read access to that single screen, nothing else.
+- API keys are scoped (`full_access` / `read_only` / custom). The agent will respect whatever scopes you grant — pick **read_only** (`projects:read`, `screens:read`, `runs:read`) if you want it to inspect but never spend credits.
+- Screens return their rendered HTML directly, and screenshots are fetched with your key — there are no public preview URLs to leak.
 - The skill never asks the agent to store your API key — it always reads from `DAISY_API_KEY`. If your agent tries to print or persist the key, that's a bug in the agent, not the skill.
 
 ## Limits
 
 - 1 active run per project (409 on concurrent starts)
-- 100 requests / minute per key (429 with `Retry-After` header)
-- 5000 requests / hour per user across all keys
-- Max 10 API keys per user
-- Run timeout: 700 seconds
-- Preview URL TTL: 24 hours
+- Per-key rate limits (429 with `Retry-After`; see the `X-RateLimit-*` response headers)
+- Batch screen update/delete: 1–500 items per request
+- Only screens with status `done` can be rendered to an image (409 otherwise)
 
 ## Links
 
-- Daisy: https://daisy.now
-- Pricing: https://daisy.now/pricing
-- Dashboard: https://daisy.now/dashboard
+- Daisy: https://www.daisy.now
+- Pricing: https://www.daisy.now/pricing
+- Dashboard: https://www.daisy.now/dashboard
 - Issues with the skill: open one in this repo
 - Issues with the API itself: support at daisy.now
 

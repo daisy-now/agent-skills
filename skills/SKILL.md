@@ -1,11 +1,13 @@
 ---
 name: design-mobile-apps-with-daisy
-description: Design native mobile app screens via the Daisy REST API. Use this when a user asks you to mock up, design, prototype, or iterate on mobile app screens — onboarding flows, settings pages, home feeds, dashboards, checkout, sign-up, etc. Drives the daisy.so canvas via bearer-token HTTPS, returns signed preview URLs the user can open in a browser.
+description: Design native mobile app screens via the Daisy REST API. Use this when a user asks you to mock up, design, prototype, or iterate on mobile app screens — onboarding flows, settings pages, home feeds, dashboards, checkout, sign-up, etc. Drives the daisy.now canvas over HTTPS, returns each screen's rendered HTML, and can render screens to PNG/JPEG images.
 ---
 
 # Design mobile app screens with Daisy
 
-Daisy (https://daisy.now) is an AI canvas for designing native mobile app screens. This skill drives Daisy's public REST API at `/api` so you can spin up projects, generate screens, iterate on them, and hand the user a clickable preview URL — all from inside your coding agent.
+Daisy (https://www.daisy.now) is an AI canvas for designing native mobile app screens. This skill drives Daisy's REST API at `https://www.daisy.now/api` so you can spin up projects, generate screens, iterate on them, read the rendered HTML, and render screens to images — all from inside your coding agent.
+
+The API is **unified and versionless**: there is no `/v1` prefix, and every endpoint lives under `https://www.daisy.now/api`.
 
 ## When to use
 
@@ -18,27 +20,33 @@ Use this skill when the user says things like:
 - "Sketch the empty state for the inbox"
 - "Add a checkout screen to the project we made yesterday"
 
-Do NOT use this skill for: web pages (Daisy is mobile-only), design system tokens divorced from screens, copywriting that doesn't ship pixels, or anything that requires PNG/PDF export (the API returns signed HTML preview URLs only).
+Do NOT use this skill for: web pages (Daisy is mobile-only), design system tokens divorced from screens, or copywriting that doesn't ship pixels.
 
 ## Setup
 
-The user must have a **Pro or Max** Daisy subscription and have created an API key at https://daisy.now/dashboard → API keys.
+The user must have a **Pro or Max** Daisy subscription and have created an API key in **Settings → API keys** at https://www.daisy.now/dashboard.
 
 Read the key from the environment:
 
 ```bash
 export DAISY_API_KEY="dsy_live_..."
-export DAISY_BASE_URL="https://daisy.now"   # override only for self-host
 ```
 
-All requests use:
+The domain is always `https://www.daisy.now` — there is no base-URL override.
+
+Every request authenticates with the key, sent as either header:
 
 ```
 Authorization: Bearer $DAISY_API_KEY
-Content-Type: application/json
+# or
+x-api-key: $DAISY_API_KEY
 ```
 
-If `DAISY_API_KEY` is missing or starts with `dsy_test_`, fail early and ask the user to paste the key. Never invent a key.
+JSON requests also send `Content-Type: application/json`.
+
+If `DAISY_API_KEY` is missing or starts with `dsy_test_`, fail early and ask the user to paste a live key. Never invent a key.
+
+**Scopes.** A key only grants the scopes it was minted with; a request missing the required scope returns `403 forbidden:api`. The endpoint reference below lists the scope each route needs. If the user wants the agent to inspect but never spend credits, they should mint a **read_only** key (`projects:read`, `screens:read`, `runs:read`).
 
 ## Workflow A — Runs (recommended)
 
@@ -48,21 +56,22 @@ Use this when the user describes the work in natural language and you want Daisy
 
 ```bash
 # Reuse an existing project if the user already mentioned one
-curl -s "$DAISY_BASE_URL/api/projects" \
+curl -s "https://www.daisy.now/api/projects" \
   -H "Authorization: Bearer $DAISY_API_KEY" | jq '.data[] | {id, name}'
 
 # Or create a new one
-curl -s -X POST "$DAISY_BASE_URL/api/projects" \
+curl -s -X POST "https://www.daisy.now/api/projects" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"idea":"fitness tracker for runners","name":"Runr"}'
-# → { "id": "abc123", "name": "Runr", ... }
+# → 201 with the full project object: { "id": "abc123", "name": "Runr", ... }
 ```
 
 ### 2. Fire a run
 
 ```bash
-curl -s -X POST "$DAISY_BASE_URL/api/projects/abc123/runs" \
+curl -s -X POST "https://www.daisy.now/api/projects/abc123/runs" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -70,23 +79,33 @@ curl -s -X POST "$DAISY_BASE_URL/api/projects/abc123/runs" \
     "message": "Design onboarding (3 screens: welcome, goal-picker, permissions) and a home feed with today'\''s run summary.",
     "wait": "none"
   }'
-# → 202 { "runId": "run_xyz", "status": "queued", "pollUrl": "/api/runs/run_xyz" }
+# → 202 {
+#     "runId": "run_xyz",
+#     "status": "queued",
+#     "projectId": "abc123",
+#     "pollUrl": "/api/projects/abc123/runs/run_xyz"
+#   }
 ```
 
 `wait` values:
 
 - `"none"` (default) — returns `202` immediately with `runId` + `pollUrl`. **Use this**; poll every 3-5s.
-- `"block"` — blocks up to 700s and returns the final run view. Only use when the user is paying close attention to your terminal and the run is small (1-2 screens).
+- `"block"` — keeps the request open until the run finishes, then returns the completed Run object. Only use when the user is watching your terminal and the run is small (1-2 screens).
 
-`tools` (optional) — `{ "mcp": false, "skills": false }` to disable the user's MCP servers / agent skills for this run. Default: both enabled.
+Other body fields (optional):
 
-**Concurrency**: only one active run per project. A second concurrent POST returns `409 conflict:api`. Either wait for the first run, or cancel it with `DELETE /api/runs/{runId}`.
+- `modelKey` — admin model override.
+- `tools` — `{ "mcp": false, "skills": false }` to disable the user's MCP servers / agent skills for this run. Both default on.
+
+**Concurrency**: only one active run per project. A second concurrent POST returns `409 conflict:api`. Either wait for the first run, or cancel it (see step 6).
 
 ### 3. Poll until terminal
 
+Poll the `pollUrl` returned by step 2 (it is the nested path `/api/projects/:id/runs/:runId`):
+
 ```bash
 while true; do
-  STATE=$(curl -s "$DAISY_BASE_URL/api/runs/run_xyz" \
+  STATE=$(curl -s "https://www.daisy.now/api/projects/abc123/runs/run_xyz" \
     -H "Authorization: Bearer $DAISY_API_KEY")
   STATUS=$(echo "$STATE" | jq -r .status)
   case "$STATUS" in
@@ -96,75 +115,100 @@ while true; do
 done
 ```
 
-A final run view looks like:
+A Run object looks like:
 
-```json
+```jsonc
 {
   "id": "run_xyz",
-  "status": "succeeded",
-  "operations": [
-    { "type": "screen_created", "screenId": "scr_1", "label": "Welcome", "ok": true },
-    { "type": "screen_created", "screenId": "scr_2", "label": "Goal picker", "ok": true }
-  ],
+  "projectId": "abc123",
+  "status": "queued | running | succeeded | failed | cancelled",
+  "input": { "message": "…", "modelKey": null, "enableMcp": true, "enableSkills": true },
   "output": {
     "summary": "2 screens created",
     "lastAssistantMessage": "Done. Onboarding starts on the welcome screen…"
   },
-  "creditsCharged": 20,
-  "startedAt": 1735…, "finishedAt": 1735…
+  "error": null,
+  "operations": [
+    { "type": "screen_created", "screenId": "scr_1", "label": "Welcome", "ok": true, "at": 0 },
+    { "type": "screen_created", "screenId": "scr_2", "label": "Goal picker", "ok": true, "at": 0 }
+  ],
+  "createdAt": 0, "startedAt": 0, "finishedAt": 0, "abortRequestedAt": null,
+  "creditsCharged": 20
 }
 ```
 
-### 4. Resolve screen IDs into preview URLs
+### 4. Resolve screen IDs into rendered HTML
 
-The run doesn't return preview URLs directly — fetch each screen:
+The run lists the screens it touched in `operations[].screenId`. Fetch each screen — the single-screen GET includes the rendered `html`:
 
 ```bash
 for SID in $(echo "$STATE" | jq -r '.operations[].screenId'); do
-  curl -s "$DAISY_BASE_URL/api/projects/abc123/screens/$SID" \
+  curl -s "https://www.daisy.now/api/projects/abc123/screens/$SID" \
     -H "Authorization: Bearer $DAISY_API_KEY" \
-    | jq '{label, previewUrl, htmlUrl, status}'
+    | jq '{id, label, status, html}'
 done
 ```
 
-Or list all screens in the project:
+Or list all screens in the project (metadata only — no HTML):
 
 ```bash
-curl -s "$DAISY_BASE_URL/api/projects/abc123/screens" \
+curl -s "https://www.daisy.now/api/projects/abc123/screens" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
-  | jq '.data[] | {id, label, previewUrl, status}'
+  | jq '.data[] | {id, label, status}'
 ```
 
-### 5. Show the previews to the user
+Each screen's `status` is `loading | done | error`. Only screens with status `done` have final HTML and can be rendered to an image.
 
-`previewUrl` is HMAC-signed, valid for 24h, requires **no auth**, and renders the screen full-page in mobile dimensions. Print it as a clickable link:
+### 5. Show the screens to the user
+
+There are no preview URLs anymore — screens carry their HTML directly. Two ways to hand the user something they can open:
+
+**a) Save the HTML to a file** and point them at it:
+
+```bash
+curl -s "https://www.daisy.now/api/projects/abc123/screens/scr_1" \
+  -H "Authorization: Bearer $DAISY_API_KEY" \
+  | jq -r '.html' > welcome.html
+# → open welcome.html in a browser
+```
+
+**b) Render an image** via the screenshot endpoint (PNG by default):
+
+```bash
+curl -s -X POST "https://www.daisy.now/api/screenshots" \
+  -H "Authorization: Bearer $DAISY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"projectId":"abc123","screenId":"scr_1","format":"png"}' \
+  -o welcome.png
+# → raw image bytes (Content-Type: image/png)
+# 404 if the screen doesn't exist; 409 if it hasn't been rendered yet (wait for status "done")
+```
+
+Then print the local paths for the user:
 
 ```
-✓ Welcome screen      → https://daisy.now/api/preview/eyJhb…
-✓ Goal picker         → https://daisy.now/api/preview/eyJhb…
-✓ Permissions prompt  → https://daisy.now/api/preview/eyJhb…
+✓ Welcome screen      → ./welcome.png
+✓ Goal picker         → ./goal-picker.png
+✓ Permissions prompt  → ./permissions.png
 ```
-
-`htmlUrl` returns the raw HTML (same token + `?raw=1`) — use when the user wants to download or inspect markup.
 
 ### 6. Cancel a run (if needed)
 
 ```bash
-curl -s -X DELETE "$DAISY_BASE_URL/api/runs/run_xyz" \
+curl -s -X DELETE "https://www.daisy.now/api/projects/abc123/runs/run_xyz" \
   -H "Authorization: Bearer $DAISY_API_KEY"
-# Queued → cancels immediately, returns 200
-# Running → returns 202 with status "aborting"; poll until "cancelled"
-# Already terminal → returns the existing terminal view
+# Queued/running → returns 202 with status "aborting"; poll until "cancelled"
+# Already terminal → returns the existing run unchanged
 ```
 
-## Workflow B — Direct tools (advanced)
+## Workflow B — Direct screen ops (advanced)
 
-Skip the run orchestrator when you want precise control — e.g. iterating on one screen, or generating screens in a specific order that the AI wouldn't pick. Direct calls are synchronous and return the screen immediately.
+Skip the run orchestrator when you want precise control — e.g. generating a single screen, repositioning the canvas, or applying an HTML edit you've authored yourself. These calls are synchronous.
 
 ### Create one screen
 
 ```bash
-curl -s -X POST "$DAISY_BASE_URL/api/projects/abc123/screens" \
+curl -s -X POST "https://www.daisy.now/api/projects/abc123/screens" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -172,170 +216,175 @@ curl -s -X POST "$DAISY_BASE_URL/api/projects/abc123/screens" \
     "label": "Settings",
     "brief": "iOS-style settings list: account section with avatar, then notifications, privacy, appearance (light/dark/auto), and a destructive Delete account at the bottom."
   }'
-# → 201 with the full screen view, X-Credits-Charged: 10
+# → 201 with the created screen (includes html). Consumes credits.
 ```
 
-`label` is short (≤120 chars, what the user sees). `brief` is the generation instruction (20-4000 chars; longer + more specific = better output).
+`label` is short (1-120 chars, what the user sees). `brief` is the generation instruction (20-4000 chars; longer + more specific = better output).
 
 ### Edit a screen
 
-Two modes:
+There is **no per-screen AI edit endpoint** anymore. To change a screen:
 
-**Full refinement** (re-generates the whole screen):
+- **Via natural language** — fire a run (Workflow A) with a message like *"On the Settings screen, make the primary CTA orange and double its size."* The agent edits the existing screen in place. This is the recommended path for design changes.
+- **Via direct HTML** — if you already have the new markup, push it through the batch update below.
+
+### Batch update screens
+
+Applies field-level updates to many screens at once (canvas drag/resize, inline HTML edits):
 
 ```bash
-curl -s -X PATCH "$DAISY_BASE_URL/api/projects/abc123/screens/scr_1" \
+curl -s -X PATCH "https://www.daisy.now/api/projects/abc123/screens" \
+  -H "Authorization: Bearer $DAISY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "screens": [
+      { "id": "scr_1", "x": 120, "y": 0, "userResized": true },
+      { "id": "scr_2", "html": "<!doctype html>…" }
+    ]
+  }'
+# → { "ok": true }
+```
+
+Each item is `{ id, x?, y?, height?, userResized?, html?, prompt?, generationPrompt?, status? }` (1-500 items).
+
+### Batch delete screens
+
+```bash
+curl -s -X DELETE "https://www.daisy.now/api/projects/abc123/screens" \
+  -H "Authorization: Bearer $DAISY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"ids":["scr_1","scr_2"]}'
+# → { "ok": true } (1-500 ids)
+```
+
+### Set the theme
+
+The theme lives on the project — update it with `PATCH /projects/:id` (there is no separate theme route):
+
+```bash
+curl -s -X PATCH "https://www.daisy.now/api/projects/abc123" \
   -H "Authorization: Bearer $DAISY_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"refinement":"Make the primary CTA orange and double its size. Drop the secondary link."}'
-# X-Credits-Charged: 5
+  -d '{"theme":{"colors":{"primary":"#0A84FF","background":"#0B0F17","text":"#F2F4F7"},"radius":"medium"}}'
+# → the updated full project
 ```
 
-**Targeted subtree edit** (cheaper, just the one element):
-
-```bash
-# Get the screen's HTML first to find data-aid="..." on the element to change
-curl -s "$DAISY_BASE_URL/api/projects/abc123/screens/scr_1?raw=1" \
-  -H "Authorization: Bearer $DAISY_API_KEY"
-# ...find <button data-aid="btn_a3">Continue</button>...
-
-curl -s -X PATCH "$DAISY_BASE_URL/api/projects/abc123/screens/scr_1" \
-  -H "Authorization: Bearer $DAISY_API_KEY" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"targetAid":"btn_a3","intent":"Change copy to \"Get started\" and make it full-width."}'
-```
-
-### Set or generate the theme
-
-```bash
-# Generate a theme from the project idea
-curl -s -X POST "$DAISY_BASE_URL/api/projects/abc123/theme/generate" \
-  -H "Authorization: Bearer $DAISY_API_KEY"
-
-# Or set one explicitly
-curl -s -X PUT "$DAISY_BASE_URL/api/projects/abc123/theme" \
-  -H "Authorization: Bearer $DAISY_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"colors":{"primary":"#0A84FF","background":"#0B0F17","text":"#F2F4F7"},"radius":"medium"}'
-```
-
-Always set/generate the theme **before** creating screens — every screen inherits from it.
+Set the theme **before** generating screens — every screen inherits from it. The current theme is included in `GET /projects/:id`.
 
 ## Showing screens in YOUR UI
 
-If you're building a UI that wraps this skill (e.g. a desktop app, a web frontend), embed previews directly:
+If you're building a UI that wraps this skill (a desktop app, a web frontend), you have two embed options now that signed preview URLs are gone:
+
+**Render the screen's HTML inline** with an `srcdoc` iframe:
 
 ```html
-<iframe src="{previewUrl}" width="390" height="844" frameborder="0"></iframe>
+<iframe srcdoc="{escaped screen.html}" width="390" height="844" frameborder="0"></iframe>
 ```
 
-The preview route sets permissive `X-Frame-Options` for embedding under daisy.so's origin. Cross-origin embedding may be blocked depending on the user's plan — fall back to opening `previewUrl` in a new tab.
+**Or render to an image** via `POST /api/screenshots` and display the returned bytes (`<img src="data:image/png;base64,…">` or a saved file).
 
 ## Endpoint reference
 
-All paths are under `$DAISY_BASE_URL/api`. Replace `:id` with project ID, `:sid` with screen ID, `:runId` with run ID.
+All paths are under `https://www.daisy.now/api`. Replace `:id` with project ID, `:sid` with screen ID, `:runId` with run ID.
 
 | Method | Path | Scope | Credits |
 |---|---|---|---|
-| GET | `/me` | implicit | 0 |
-| GET | `/projects` | `projects.read` | 0 |
-| POST | `/projects` | `projects.write` | 0 |
-| GET | `/projects/:id` | `projects.read` | 0 |
-| PATCH | `/projects/:id` | `projects.write` | 0 |
-| DELETE | `/projects/:id` | `projects.write` | 0 |
-| GET | `/projects/:id/screens` | `screens.read` | 0 |
-| POST | `/projects/:id/screens` | `screens.write` | **10** |
-| GET | `/projects/:id/screens/:sid` | `screens.read` | 0 |
-| PATCH | `/projects/:id/screens/:sid` | `screens.write` | **5** |
-| DELETE | `/projects/:id/screens/:sid` | `screens.write` | 0 |
-| PUT | `/projects/:id/theme` | `themes.write` | 0 |
-| PUT | `/projects/:id/design-contract` | `themes.write` | 0 |
-| POST | `/projects/:id/runs` | `runs.write` | variable |
-| GET | `/projects/:id/runs` | `runs.read` | 0 |
-| GET | `/runs/:runId` | `runs.read` | 0 |
-| DELETE | `/runs/:runId` | `runs.write` | 0 |
-| GET | `/usage?days=&projectId=` | `usage.read` | 0 |
-| GET | `/preview/:token` | (signed) | 0 |
+| GET | `/user/me` | any key | 0 |
+| GET | `/user/usage?days=&projectId=` | any key | 0 |
+| GET `POST` | `/user/api-keys` | session/key | 0 |
+| DELETE | `/user/api-keys/:id` | session/key | 0 |
+| GET | `/projects` | `projects:read` | 0 |
+| POST | `/projects` _(idempotent)_ | `projects:write` | 0 |
+| GET | `/projects/:id` | `projects:read` | 0 |
+| PATCH | `/projects/:id` _(idempotent)_ | `projects:write` | 0 |
+| DELETE | `/projects/:id` | `projects:write` | 0 |
+| GET | `/projects/:id/screens` | `screens:read` | 0 |
+| GET | `/projects/:id/screens/:sid` | `screens:read` | 0 |
+| POST | `/projects/:id/screens` _(idempotent)_ | `screens:write` | **yes** |
+| PATCH | `/projects/:id/screens` | `screens:write` | 0 |
+| DELETE | `/projects/:id/screens` | `screens:write` | 0 |
+| POST | `/projects/:id/runs` _(idempotent)_ | `runs:write` | **yes** |
+| GET | `/projects/:id/runs` | `runs:read` | 0 |
+| GET | `/projects/:id/runs/:runId` | `runs:read` | 0 |
+| DELETE | `/projects/:id/runs/:runId` | `runs:write` | 0 |
+| POST | `/screenshots` | `screenshots` | 0 |
 
-## Credit costs
+**Response envelope.** Collections return `{ "data": [ … ], "cursor": null }`. Single resources return the object directly. Simple mutations return `{ "ok": true, … }`.
 
-- **Screen create**: 10 credits (≈$0.10)
-- **Screen edit**: 5 credits
-- **Run**: sum of all screens created / edited inside the run
-- Everything else (reads, theme changes, deletes, project ops): **free**
+## Scopes & plans
 
-Free-tier and Plus accounts can't call this API at all — they get `403 forbidden:api`. If you see that, tell the user to upgrade at https://daisy.now/pricing.
+Scopes use colon form. A key carries a subset; a request missing the scope returns `403`.
 
-Check remaining credits before a big run:
+| Scope | Grants |
+|---|---|
+| `projects:read` | List and read projects |
+| `projects:write` | Create, update, delete projects |
+| `screens:read` | Read screen metadata and HTML |
+| `screens:write` | Create, batch-edit, and delete screens directly |
+| `runs:read` | Read run status and output |
+| `runs:write` | Send chat messages / start and cancel runs |
+| `screenshots` | Render a screen to an image |
+
+Meta-scopes expand at creation time: `apis:all` → every scope, `apis:read` → every `*:read` scope. Presets: **`full_access`** (all) and **`read_only`** (`projects:read`, `screens:read`, `runs:read`).
+
+> Legacy dotted scopes (`projects.read`, `themes.*`, `chat.*`, `usage.*`) are mapped on read for old keys, but mint new keys with the colon names above.
+
+Free/Plus tiers can't call the API — they get `403 forbidden:api`. Tell the user to upgrade at https://www.daisy.now/pricing.
+
+## Credits
+
+Screen generation (`POST /screens`) and edits made inside a run consume credits; reads, deletes, batch field updates, theme changes, and screenshots are free. The API enforces your plan's allowance and returns `403`/`409` when credits are exhausted.
+
+You don't have to guess the cost — a run reports the actual `creditsCharged` in its terminal object. Check the remaining balance any time:
 
 ```bash
-curl -s "$DAISY_BASE_URL/api/me" -H "Authorization: Bearer $DAISY_API_KEY" \
-  | jq '{credits, creditsAllowance}'
+curl -s "https://www.daisy.now/api/user/me" -H "Authorization: Bearer $DAISY_API_KEY" | jq '{plan, credits}'
 ```
-
-If `credits` is `"unlimited"`, the user is an admin and you can ignore the budget.
 
 ## Idempotency
 
-Send `Idempotency-Key: <uuid>` on every write (`POST`/`PATCH`/`PUT`). Daisy returns the cached response (with `X-Idempotent-Replay: true`) for 24 hours if you retry the same key + same body. Different body = different slot, even with the same key.
+The write endpoints marked _(idempotent)_ in the reference accept an `Idempotency-Key` header (use a UUID). A retried request with the **same key and body** replays the original response, flagged with `X-Idempotent-Replay: true`, instead of running twice. A different body with the same key is a new slot.
 
-Always retry on:
+Send the same key across retries — that's the point. Always retry on:
 
-- `429 rate_limit:api` (wait `Retry-After` seconds)
-- `503 offline:api` (exponential backoff: 1s, 2s, 4s, …, cap at 30s, give up after ~3 minutes)
-- Network/transport errors
+- `429 rate_limit:api` — wait the `Retry-After` seconds.
+- `500 internal_error` — exponential backoff (1s, 2s, 4s, …, cap ~30s).
+- Network/transport errors.
 
-Never retry on `4xx` other than 429 — the request itself is wrong.
+Never retry other `4xx` — the request itself is wrong.
 
-## Error shape
+## Errors
 
-Every error is JSON:
+Every error is JSON: `{ "code": "...", "message": "..." }` with an appropriate status.
 
-```json
-{ "code": "forbidden:api", "message": "…", "cause": "Public API access requires the Pro or Max plan." }
-```
-
-Common codes:
-
-| Code | When | What to do |
-|---|---|---|
-| `unauthorized:api` | bad/missing/revoked key | Ask user to re-create the key in the dashboard |
-| `forbidden:api` | no scope, wrong tier, or `subscriptionStatus` is not `active`/`trialing` | Tell user to upgrade or fix billing |
-| `not_found:api` | project/screen/run doesn't exist | Don't retry, the ID is wrong |
-| `conflict:api` | active run on project, or `Idempotency-Key` collision with different body | For active run: cancel or wait; for idempotency: use a new key |
-| `rate_limit:api` | rate-limited | Honor `Retry-After` header |
-| `bad_request:api` | invalid body | Fix the request — don't retry |
-| `offline:api` | transient backend issue | Retry with backoff |
+| Code | Status | When | What to do |
+|---|---|---|---|
+| `unauthorized:api` | 401 | Missing, malformed, revoked, or unrecognized key | Ask the user to re-create the key in the dashboard |
+| `forbidden:api` | 403 | Missing scope, wrong plan, or exhausted credits | Upgrade, fix billing, or mint a key with the right scope |
+| `bad_request:api` | 400 | Invalid body or query | Fix the request — don't retry |
+| `not_found:api` | 404 | Resource doesn't exist or isn't yours | Don't retry, the ID is wrong |
+| `conflict:api` | 409 | Active run on the project, or screenshot of an unrendered screen | Cancel/await the run; wait for screen status `done` |
+| `rate_limit:api` | 429 | Rate-limited | Honor the `Retry-After` header |
+| `internal_error` | 500 | Unexpected server error | Retry with backoff |
 
 ## Rate limits
 
-Per key: 100 req/min, 1000 req/hour. Per user: 5000 req/hour across all keys.
-
-429 responses include:
-
-```
-Retry-After: 12
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 0
-X-RateLimit-Reset: 1735…
-```
-
-Honor `Retry-After` — Daisy uses fixed windows, not sliding, so the value is exact.
+Rate limits apply to **API keys only** (session traffic is exempt). Responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`. On `429`, the `Retry-After` header gives the exact seconds to wait — honor it.
 
 ## Limits to remember
 
-- One active run per project (409 on concurrent POST `/runs`)
-- Max 10 API keys per user
-- `brief` field: 20-4000 chars; `refinement`: 1-800 chars; `message`: 1-4000 chars
-- Run max duration: 700s
-- Preview URL TTL: 24h (just refetch the screen to get a fresh URL)
+- One active run per project (`409` on a concurrent POST `/runs`).
+- `label`: 1-120 chars · `brief`: 20-4000 chars · `message`: 1-4000 chars.
+- Batch screen update/delete: 1-500 items per request.
+- Only screens with status `done` can be screenshotted (`409` otherwise).
 
 ## Anti-patterns
 
-- ❌ Polling `/runs/:runId` faster than every 2 seconds — wastes rate budget for no gain
-- ❌ Calling `POST /screens` in a tight loop instead of using `POST /runs` with one `message` — runs batch the planning + parallelize generation under one credit charge
-- ❌ Treating `previewUrl` as auth-gated — it's an unauthenticated signed URL safe to print to terminal
-- ❌ Sending `Idempotency-Key` with random per-attempt values — the whole point is reusing the key across retries
-- ❌ Reading `data-aid` from your own guess of the HTML — always fetch with `?raw=1` first; aids are server-stamped and unstable across regenerations
+- ❌ Polling a run faster than every ~2-3 seconds — wastes rate budget for no gain.
+- ❌ Looping `POST /screens` instead of sending one run `message` — runs batch the planning and parallelize generation.
+- ❌ Looking for `previewUrl` / `htmlUrl` — those are gone. Read `screen.html` or render `POST /api/screenshots`.
+- ❌ Reaching for `PATCH`/`DELETE /screens/:sid` or `PUT /theme` — removed. Use the batch screen endpoints, runs, or `PATCH /projects/:id`.
+- ❌ Hardcoding a base URL from an env var — the domain is always `https://www.daisy.now`.
+- ❌ Sending random per-attempt `Idempotency-Key` values — reuse the key across retries.
+- ❌ Screenshotting a screen before its status is `done` — you'll get a `409`.
