@@ -62,15 +62,25 @@ The agent will pick the right endpoints, batch work into runs when sensible, sav
 
 ## How it works
 
-This repo contains a single file: `SKILL.md`. It's a Markdown document with YAML frontmatter that teaches your agent:
+The skill is built around **progressive disclosure** — the lean part loads first, the rest only when needed:
 
-- Which Daisy API endpoints exist and what they do
-- When to use the high-level **runs** orchestrator versus **direct tool** calls
-- How to authenticate, handle errors, and respect rate limits
+```
+skills/
+├── SKILL.md                  # The one path: run → poll → HTML → image, plus guardrails
+└── reference/
+    ├── api.md                # Endpoint table, scopes, errors, rate limits, idempotency, credits
+    └── direct-ops.md         # Advanced: single-screen create, batch edits, theme, embedding
+```
+
+At startup your agent loads only the `name` + `description` from the frontmatter. When a prompt matches, it reads `SKILL.md` — the opinionated happy path it follows for ~90% of requests. It opens a `reference/` file **only** when it hits an error or needs the advanced path, so idle token cost stays near zero.
+
+Together these teach your agent:
+
+- The single recommended workflow: the **runs** orchestrator, async, polled
+- How to authenticate, handle errors, retry safely, and respect rate limits
 - Credit costs per operation so the agent can be honest about budget
-- The full request/response shape for every endpoint, with copy-pasteable `curl` examples
-
-Your agent reads `SKILL.md` once at conversation start (or when invoked by a triggering prompt) and uses it as its working manual.
+- The full request/response shape for every endpoint, with copy-pasteable `curl`
+- When to drop down to **direct screen ops** for precise control
 
 ## Security notes
 
