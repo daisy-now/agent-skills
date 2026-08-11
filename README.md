@@ -69,7 +69,8 @@ skills/
 ├── SKILL.md                  # The one path: run → poll → HTML → image, plus guardrails
 └── reference/
     ├── api.md                # Endpoint table, scopes, errors, rate limits, idempotency, credits
-    └── direct-ops.md         # Advanced: single-screen create, batch edits, theme, embedding
+    ├── direct-ops.md         # Advanced: single-screen create, batch edits, theme, embedding
+    └── briefing.md           # Writing briefs that come out right: run messages & screen briefs
 ```
 
 At startup your agent loads only the `name` + `description` from the frontmatter. When a prompt matches, it reads `SKILL.md` — the opinionated happy path it follows for ~90% of requests. It opens a `reference/` file **only** when it hits an error or needs the advanced path, so idle token cost stays near zero.
@@ -81,6 +82,7 @@ Together these teach your agent:
 - Credit costs per operation so the agent can be honest about budget
 - The full request/response shape for every endpoint, with copy-pasteable `curl`
 - When to drop down to **direct screen ops** for precise control
+- The craft of writing a run `message` — a spec, not a wish — so screens come out right the first time
 
 ## Security notes
 

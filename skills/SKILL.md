@@ -63,7 +63,7 @@ curl -s -X POST "https://www.daisy.now/api/projects/abc123/runs" \
 #         "pollUrl": "/api/projects/abc123/runs/run_xyz" }
 ```
 
-A longer, more specific `message` produces better screens. `message` is 1–4000 chars.
+A longer, more specific `message` produces better screens — the brief is the design spec, and screen quality follows it. For the craft of writing a message that comes out right the first time, see [reference/briefing.md](reference/briefing.md). `message` is 1–4000 chars.
 
 ### 3 — Poll until terminal
 
@@ -141,4 +141,5 @@ Errors are JSON `{ "code", "message" }`. Retry only `429` (honor `Retry-After`),
 ## Beyond the happy path
 
 - **Precise control** — generate a single screen, drag/resize on the canvas, push your own HTML, set the theme, or embed screens in your own UI → [reference/direct-ops.md](reference/direct-ops.md)
+- **Writing briefs that come out right** — the craft of the run message and screen briefs → [reference/briefing.md](reference/briefing.md)
 - **Full endpoint table, scopes & plans, error codes, rate limits, idempotency, credits** → [reference/api.md](reference/api.md)
